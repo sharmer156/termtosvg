@@ -308,12 +308,13 @@ def get_terminal_size(fileno):
     return columns, lines
 
 
-def update_header(asciicast_records, theme, geometry):
+def update_header(asciicast_records, theme):
     # type: (Iterable[Union[AsciiCastV2Header, AsciiCastV2Event]], AsciiCastV2Theme) -> Iterable[Union[AsciiCastV2Header, AsciiCastV2Event]]
     for rec in asciicast_records:
         if isinstance(rec, AsciiCastV2Header):
             # Override header attributes with values from the configuration or CLI
-            header_theme = theme or rec.theme
-            columns, rows = geometry or (rec.width, rec.height)
-            rec = AsciiCastV2Header(rec.version, columns, rows, header_theme)
+            rec = AsciiCastV2Header(version=rec.version,
+                                    width=rec.width,
+                                    height=rec.height,
+                                    theme=theme or rec.theme)
         yield rec

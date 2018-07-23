@@ -9,8 +9,13 @@ import termtosvg.asciicast as asciicast
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
 
-PKG_CONF_PATH = os.path.join('data', 'termtosvg.ini')
-DEFAULT_CONFIG = pkgutil.get_data(__name__, PKG_CONF_PATH).decode('utf-8')
+PKG_CONF_PATH = 'data/termtosvg.ini'
+PKG_TEMPLATE_PATH = 'data/templates'
+
+# Listing templates here is not ideal but importing pkg_resources to get resource_listdir
+# does not seem worth it: it adds a dependency and slows down the invocation of termtosvg
+# by 150ms ('time termtosvg --help' execution time goes from 200ms to 350ms)
+DEFAULT_TEMPLATES_NAMES = ['plain.svg', 'carbon.svg', 'progress_bar.svg']
 
 
 class CaseInsensitiveDict(dict):
@@ -106,30 +111,6 @@ def conf_to_dict(configuration):
     return config_dict
 
 
-def get_configuration(user_config, default_config):
-    # type: (str, str) -> Dict[str, Union[Dict[str, str], asciicast.AsciiCastTheme]]
-    """ Return a dictionary representing the configuration of the application. Default
-    configuration is overrided by user configuration
-    """
-    config_dict = conf_to_dict(default_config)
-    try:
-        user_config_dict = conf_to_dict(user_config)
-    except (configparser.Error, asciicast.AsciiCastError, ValueError) as exc:
-        logger.info('Invalid configuration file: {}'.format(exc))
-        logger.info('Falling back to default configuration')
-        user_config_dict = {}
-
-    # Override default values with user configuration
-    for section in user_config_dict:
-        if section.lower() == 'global':
-            for _property in 'theme', 'font', 'screen-geometry':
-                config_dict['GLOBAL'][_property] = user_config_dict['global'][_property]
-        else:
-            config_dict[section] = user_config_dict[section]
-
-    return config_dict
-
-
 def init_read_conf():
     if 'XDG_CONFIG_HOME' in os.environ:
         user_config_dir = os.environ['XDG_CONFIG_HOME']
@@ -140,19 +121,59 @@ def init_read_conf():
                     'configuration cannot be used')
         user_config_dir = None
 
-    if user_config_dir is None:
-        return get_configuration(DEFAULT_CONFIG, DEFAULT_CONFIG)
+    if user_config_dir is not None:
+        termtosvg_config_dir = os.path.join(user_config_dir, 'termtosvg')
 
-    config_dir = os.path.join(user_config_dir, 'termtosvg')
-    config_path = os.path.join(config_dir, 'termtosvg.ini')
-    try:
-        with open(config_path, 'r') as config_file:
-            user_config = config_file.read()
-    except FileNotFoundError:
-        user_config = DEFAULT_CONFIG
-        os.makedirs(config_dir, exist_ok=True)
-        with open(config_path, 'w') as config_file:
-            config_file.write(DEFAULT_CONFIG)
-        logger.info('Created user configuration file: {}'.format(config_path))
+        # CONFIGURATION FILE
+        config_file_path = os.path.join(termtosvg_config_dir, 'termtosvg.ini')
+        try:
+            with open(config_file_path, 'r') as config_file:
+                user_config = config_file.read()
+        except FileNotFoundError:
+            # If there is no configuration file, create it from the default config
+            user_config = pkgutil.get_data(__name__, PKG_CONF_PATH).decode('utf-8')
+            os.makedirs(termtosvg_config_dir, exist_ok=True)
+            with open(config_file_path, 'w') as config_file:
+                config_file.write(user_config)
+            logger.info('Created user configuration file: {}'.format(config_file_path))
 
-    return get_configuration(user_config, DEFAULT_CONFIG)
+        # SVG TEMPLATES
+        templates_dir = os.path.join(termtosvg_config_dir, 'templates')
+        try:
+            # Gather templates in the user's configuration directory
+            user_templates = {}
+            for template_name in os.listdir(templates_dir):
+                if template_name.endswith('.svg'):
+                    template_path = os.path.join(templates_dir, template_name)
+                    with open(template_path, 'r') as template_file:
+                        stream = template_file.read()
+                    user_templates[template_name[:-4]] = stream
+        except FileNotFoundError:
+            # If the user has no 'templates' directory, create it and populate it with default
+            # templates
+            user_templates = {}
+            os.mkdir(templates_dir)
+            for template_name in DEFAULT_TEMPLATES_NAMES:
+                pkg_template_path = '{}/{}'.format(PKG_TEMPLATE_PATH, template_name)
+                bstream = pkgutil.get_data(__name__, pkg_template_path)
+                user_template_path = os.path.join(templates_dir, template_name)
+                with open(user_template_path, 'wb') as template_file:
+                    template_file.write(bstream)
+                assert template_name.endswith('.svg')
+                user_templates[template_name[:-4]] = bstream.decode('utf-8')
+            logger.info('Created user templates directory: {}'.format(templates_dir))
+
+        try:
+            return conf_to_dict(user_config), user_templates
+        except (configparser.Error, asciicast.AsciiCastError, ValueError) as exc:
+            logger.info('Invalid configuration file: {}'.format(exc))
+            logger.info('Falling back to default configuration')
+
+    default_config = pkgutil.get_data(__name__, PKG_CONF_PATH).decode('utf-8')
+    default_templates = {}
+    for template_name in DEFAULT_TEMPLATES_NAMES:
+        pkg_template_path = '{}/{}'.format(PKG_TEMPLATE_PATH, template_name)
+        stream = pkgutil.get_data(__name__, pkg_template_path).decode('utf-8')
+        default_templates[template_name] = stream
+
+    return conf_to_dict(default_config), default_templates

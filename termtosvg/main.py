@@ -12,14 +12,14 @@ USAGE = """termtosvg [output_file] [--font FONT] [--theme THEME] [--screen-geome
 Record a terminal session and render an SVG animation on the fly
 """
 EPILOG = "See also 'termtosvg record --help' and 'termtosvg render --help'"
-RECORD_USAGE = "termtosvg record [output_file] [--verbose] [--help]"
+RECORD_USAGE = "termtosvg record [output_file] [--screen-geometry GEOMETRY] [--verbose] [--help]"
 RENDER_USAGE = "termtosvg render input_file [output_file] [--font FONT] [--theme THEME] " \
-               "[--screen-geometry GEOMETRY] [--verbose] [--help]"
+               "[--verbose] [--help]"
 
 
-def parse(args, themes):
+def parse(args, themes, templates):
     # type: (List) -> Tuple[Union[None, str], argparse.Namespace]
-    # Usage: termtosvg  [output_file] [--font FONT] [--theme THEME] [--screen-geometry GEOMETRY] [--verbose]
+    # Usage: termtosvg  [output_file] [--font FONT] [--theme THEME] [--template TEMPLATE] [--screen-geometry GEOMETRY] [--verbose]
     font_parser = argparse.ArgumentParser(add_help=False)
     font_parser.add_argument(
         '--font',
@@ -30,11 +30,19 @@ def parse(args, themes):
     )
     theme_parser = argparse.ArgumentParser(add_help=False)
     theme_parser.add_argument(
-        '--theme', '-t',
+        '--theme',
         help='color theme used to render the terminal session ({})'.format(
             ', '.join(themes)),
         choices=themes,
         metavar='THEME'
+    )
+    template_parser = argparse.ArgumentParser(add_help=False)
+    template_parser.add_argument(
+        '--template',
+        help='SVG template used for the animation ({})'.format(
+            ', '.join(templates)),
+        choices=templates,
+        metavar='TEMPLATE'
     )
     geometry_parser = argparse.ArgumentParser(add_help=False)
     geometry_parser.add_argument(
@@ -53,7 +61,7 @@ def parse(args, themes):
     )
     parser = argparse.ArgumentParser(
         prog='termtosvg',
-        parents=[font_parser, theme_parser, verbose_parser, geometry_parser],
+        parents=[font_parser, theme_parser, verbose_parser, geometry_parser, template_parser],
         usage=USAGE,
         epilog=EPILOG
     )
@@ -69,7 +77,7 @@ def parse(args, themes):
             # Usage: termtosvg record [--verbose] [output_file]
             parser = argparse.ArgumentParser(
                 description='record the session to a file in asciicast v2 format',
-                parents=[verbose_parser],
+                parents=[geometry_parser, verbose_parser],
                 usage=RECORD_USAGE
             )
             parser.add_argument(
@@ -80,10 +88,10 @@ def parse(args, themes):
             )
             return 'record', parser.parse_args(args[1:])
         elif args[0] == 'render':
-            # Usage: termtosvg render [--font FONT] [--theme THEME] [--screen-geometry GEOMETRY] [--verbose] input_file [output_file]
+            # Usage: termtosvg render [--font FONT] [--theme THEME] [--template TEMPLATE] [--screen-geometry GEOMETRY] [--verbose] input_file [output_file]
             parser = argparse.ArgumentParser(
                 description='render an asciicast recording as an SVG animation',
-                parents=[font_parser, theme_parser, geometry_parser, verbose_parser],
+                parents=[font_parser, theme_parser, template_parser, verbose_parser],
                 usage=RENDER_USAGE
             )
             parser.add_argument(
@@ -101,11 +109,15 @@ def parse(args, themes):
     return None, parser.parse_args(args)
 
 
-def record_subcommand(input_fileno, output_fileno, cast_filename):
+def record_subcommand(configuration, input_fileno, output_fileno, cast_filename):
     """Save a terminal session as an asciicast recording"""
     import termtosvg.term as term
     logger.info('Recording started, enter "exit" command or Control-D to end')
-    columns, lines = term.get_terminal_size(output_fileno)
+    geometry = configuration['global']['screen-geometry']
+    if geometry is None:
+        columns, lines = term.get_terminal_size(output_fileno)
+    else:
+        columns, lines = geometry
     with term.TerminalMode(input_fileno):
         records = term.record(columns, lines, input_fileno, output_fileno)
         with open(cast_filename, 'w') as cast_file:
@@ -122,10 +134,10 @@ def render_subcommand(configuration, cast_filename, svg_filename):
 
     logger.info('Rendering started')
     asciicast_records = asciicast.read_records(cast_filename)
-    theme_name = configuration['global'].get('theme')
+    theme_name = configuration['global']['theme']
     theme = configuration.get(theme_name)
-    geometry = configuration['global'].get('screen-geometry')
-    records_with_theme = term.update_header(asciicast_records, theme, geometry)
+    geometry = configuration['global']['screen-geometry']
+    records_with_theme = term.update_header(asciicast_records, theme)
     replayed_records = term.replay(records=records_with_theme,
                                    from_pyte_char=anim.CharacterCell.from_pyte)
     anim.render_animation(replayed_records, svg_filename, configuration['global']['font'])
@@ -138,13 +150,16 @@ def record_render_subcommand(configuration, input_fileno, output_fileno, svg_fil
     import termtosvg.term as term
 
     logger.info('Recording started, enter "exit" command or Control-D to end')
-    columns, lines = term.get_terminal_size(output_fileno)
-    theme_name = configuration['global'].get('theme')
+    geometry = configuration['global']['screen-geometry']
+    if geometry is None:
+        columns, lines = term.get_terminal_size(output_fileno)
+    else:
+        columns, lines = geometry
+    theme_name = configuration['global']['theme']
     theme = configuration.get(theme_name)
-    geometry = configuration['global'].get('screen-geometry')
     with term.TerminalMode(input_fileno):
         asciicast_records = term.record(columns, lines, input_fileno, output_fileno)
-        records_with_theme = term.update_header(asciicast_records, theme, geometry)
+        records_with_theme = term.update_header(asciicast_records, theme)
         replayed_records = term.replay(records=records_with_theme,
                                        from_pyte_char=anim.CharacterCell.from_pyte)
         anim.render_animation(replayed_records, svg_filename, configuration['global']['font'])
@@ -167,11 +182,11 @@ def main(args=None, input_fileno=None, output_fileno=None):
     logger.handlers = [console_handler]
     logger.setLevel(logging.INFO)
 
-    configuration = config.init_read_conf()
-    available_themes = config.CaseInsensitiveDict(**configuration)
-    del available_themes['global']
+    configuration, templates = config.init_read_conf()
+    themes = config.CaseInsensitiveDict(**configuration)
+    del themes['global']
 
-    command, args = parse(args[1:], available_themes)
+    command, args = parse(args[1:], themes, templates)
 
     if args.verbose:
         _, log_filename = tempfile.mkstemp(prefix='termtosvg_', suffix='.log')
@@ -195,7 +210,7 @@ def main(args=None, input_fileno=None, output_fileno=None):
         cast_filename = args.output_file
         if cast_filename is None:
             _, cast_filename = tempfile.mkstemp(prefix='termtosvg_', suffix='.cast')
-        record_subcommand(input_fileno, output_fileno, cast_filename)
+        record_subcommand(configuration, input_fileno, output_fileno, cast_filename)
     elif command == 'render':
         svg_filename = args.output_file
         if svg_filename is None:
