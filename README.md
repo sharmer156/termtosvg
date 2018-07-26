@@ -29,7 +29,7 @@ enter "exit" command or Control-D to end
 一般存储在/tem中，如果突然死机或者断电，可以在这里找到存储的文件
 dir /tmp
 
-THE 
+THE END!
 
 
 # termtosvg
