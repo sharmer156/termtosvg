@@ -1,4 +1,5 @@
 [![Build Status](https://travis-ci.org/nbedos/termtosvg.svg?branch=master)](https://travis-ci.org/nbedos/termtosvg)
+Termtosvg 是一个用Python 编写的Linux 终端记录器，它能将命令行会话呈现成独立的SVG 动画
 
 # termtosvg
 termtosvg is a Linux terminal recorder written in Python that renders your command
