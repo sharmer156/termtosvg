@@ -1,5 +1,36 @@
 [![Build Status](https://travis-ci.org/nbedos/termtosvg.svg?branch=master)](https://travis-ci.org/nbedos/termtosvg)
 Termtosvg 是一个用Python 编写的Linux 终端记录器，它能将命令行会话呈现成独立的SVG 动画
+安装后需要加入到系统变量，加入到当前用户的变量：
+```
+export PATH=/home/（用户名）/.local/bin:$PATH
+source .bashrc
+```
+
+如果需要加入到所有用户的变量
+```
+$ vim /etc/profile
+
+# 在里面加入：
+
+export PATH=home/（用户名）/.local/bin:$PATH
+
+# 使生效
+
+source profile
+```
+打开保存的动画图片
+```
+$ firefox /tmp/termtosvg_exp5nsr4.svg
+#firefox 也可换成其它浏览器或者程序
+```
+退出软件
+enter "exit" command or Control-D to end
+
+一般存储在/tem中，如果突然死机或者断电，可以在这里找到存储的文件
+dir /tmp
+
+THE 
+
 
 # termtosvg
 termtosvg is a Linux terminal recorder written in Python that renders your command
